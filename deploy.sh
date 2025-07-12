@@ -21,8 +21,8 @@ COMPOSE_CMD="docker compose"
 # Banner
 echo -e "${GREEN}"
 echo "╔═══════════════════════════════════════════════════════════════════════════════╗"
-echo "║                        MinIO Deployment Script                               ║"
-echo "║                    Secure S3-Compatible Object Storage                       ║"
+echo "║                        MinIO Deployment Script                                ║"
+echo "║                    Secure S3-Compatible Object Storage                        ║"
 echo "╚═══════════════════════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
