@@ -156,8 +156,8 @@ brew install minio/stable/mc
 mc alias set myminio https://your-pi-ip:9000 your-username your-password --insecure
 
 # Or add to system keychain (more secure)
-# First, download the certificate
-curl -k https://your-pi-ip:9000 > /tmp/minio-cert.pem
+# First, extract the certificate from the TLS connection
+openssl s_client -connect your-pi-ip:9000 -servername your-pi-hostname < /dev/null 2>/dev/null | openssl x509 -outform PEM > /tmp/minio-cert.pem
 
 # Add to system keychain
 sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain /tmp/minio-cert.pem
@@ -306,6 +306,21 @@ print(f"Status: {response.status_code}")
 
 For a more secure approach, add the certificate to your system's trusted certificates:
 
+#### Method 1: Extract certificate from TLS connection (recommended)
+
+```bash
+# Extract the certificate from the TLS connection
+openssl s_client -connect your-pi-ip:9000 -servername your-pi-hostname < /dev/null 2>/dev/null | openssl x509 -outform PEM > ~/Downloads/minio-cert.crt
+
+# Add to system keychain
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ~/Downloads/minio-cert.crt
+
+# Verify it was added
+security find-certificate -a -c "your-hostname" /Library/Keychains/System.keychain
+```
+
+#### Method 2: Copy certificate from MinIO server
+
 ```bash
 # Copy certificate from your MinIO server
 scp pi@your-pi-ip:/path/to/minio-server-setup/certs/public.crt ~/Downloads/minio-cert.crt
@@ -391,7 +406,14 @@ docker compose up -d
 ### Get Certificate for Clients
 
 ```bash
-./scripts/get-cert.sh
+# Extract certificate from your MinIO server
+./scripts/get-cert.sh --host 192.168.1.100
+
+# Extract and install to macOS keychain
+./scripts/get-cert.sh --host 192.168.1.100 --keychain
+
+# See all options
+./scripts/get-cert.sh --help
 ```
 
 ## 📁 File Structure

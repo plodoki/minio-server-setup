@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# MinIO Certificate Helper Script
-# This script helps you retrieve the certificate for client configuration
+# MinIO Certificate Extraction Script
+# This script extracts the TLS certificate from your MinIO server
 
-set -euo pipefail
+set -e
 
 # Colors for output
 RED='\033[0;31m'
@@ -12,118 +12,196 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+# Default values
+MINIO_HOST=""
+MINIO_PORT="9000"
+OUTPUT_FILE="minio-cert.pem"
+INSTALL_TO_KEYCHAIN=false
 
-# Function to print success messages
-print_success() {
-    echo -e "${GREEN}✓ $1${NC}"
+# Function to display usage
+show_usage() {
+    echo -e "${BLUE}MinIO Certificate Extraction Script${NC}"
+    echo ""
+    echo "Usage: $0 [OPTIONS]"
+    echo ""
+    echo "Options:"
+    echo "  -h, --host HOST        MinIO server hostname or IP address (required)"
+    echo "  -p, --port PORT        MinIO server port (default: 9000)"
+    echo "  -o, --output FILE      Output certificate file (default: minio-cert.pem)"
+    echo "  -k, --keychain         Install certificate to macOS keychain (requires sudo)"
+    echo "  --help                 Show this help message"
+    echo ""
+    echo "Examples:"
+    echo "  $0 --host 192.168.1.100"
+    echo "  $0 --host minio.local --port 9000 --keychain"
+    echo "  $0 -h 192.168.1.100 -o ~/Downloads/minio.crt"
+    echo ""
 }
 
-# Function to print error messages
-print_error() {
-    echo -e "${RED}✗ $1${NC}"
+# Function to extract certificate
+extract_certificate() {
+    local host=$1
+    local port=$2
+    local output=$3
+    
+    echo -e "${BLUE}Extracting certificate from ${host}:${port}...${NC}"
+    
+    # Note: We'll let openssl s_client handle the connection test
+    # as it provides better error messages for TLS-specific issues
+    
+    # Extract certificate with better error handling
+    echo -e "${BLUE}Attempting to connect and extract certificate...${NC}"
+    
+    # First, try to connect and get verbose output for debugging
+    if ! openssl s_client -connect "${host}:${port}" -servername "${host}" < /dev/null 2>&1 | head -20 | grep -q "CONNECTED"; then
+        echo -e "${RED}Error: Cannot establish TLS connection to ${host}:${port}${NC}"
+        echo ""
+        echo "Troubleshooting steps:"
+        echo "1. Verify MinIO is running: curl -k https://${host}:${port}/minio/health/live"
+        echo "2. Check if port ${port} is correct (MinIO API port, not console port)"
+        echo "3. Verify network connectivity: ping ${host}"
+        echo "4. Check firewall settings"
+        echo ""
+        return 1
+    fi
+    
+    # Extract the certificate
+    if openssl s_client -connect "${host}:${port}" -servername "${host}" < /dev/null 2>/dev/null | openssl x509 -outform PEM > "${output}" 2>/dev/null; then
+        # Verify the certificate was actually extracted
+        if [ -s "${output}" ] && openssl x509 -in "${output}" -noout -text >/dev/null 2>&1; then
+            echo -e "${GREEN}Certificate extracted successfully to: ${output}${NC}"
+            
+            # Display certificate info
+            echo ""
+            echo -e "${BLUE}Certificate Information:${NC}"
+            openssl x509 -in "${output}" -text -noout | grep -E "(Subject:|Issuer:|Not Before:|Not After:|DNS:|IP Address:)" | sed 's/^[[:space:]]*/  /'
+            
+            return 0
+        else
+            echo -e "${RED}Error: Certificate file is empty or invalid${NC}"
+            rm -f "${output}"
+            return 1
+        fi
+    else
+        echo -e "${RED}Error: Failed to extract certificate${NC}"
+        echo "This could be due to:"
+        echo "1. TLS handshake failure"
+        echo "2. Invalid certificate on server"
+        echo "3. Network connectivity issues"
+        return 1
+    fi
 }
 
-# Function to print info messages
-print_info() {
-    echo -e "${BLUE}ℹ $1${NC}"
+# Function to install certificate to macOS keychain
+install_to_keychain() {
+    local cert_file=$1
+    
+    if [[ "$OSTYPE" != "darwin"* ]]; then
+        echo -e "${YELLOW}Warning: Keychain installation is only supported on macOS${NC}"
+        return 1
+    fi
+    
+    echo ""
+    echo -e "${BLUE}Installing certificate to macOS system keychain...${NC}"
+    echo "This requires administrator privileges."
+    
+    if sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "${cert_file}"; then
+        echo -e "${GREEN}Certificate installed successfully to system keychain${NC}"
+        echo ""
+        echo -e "${BLUE}Verification:${NC}"
+        # Extract subject from certificate for verification
+        local subject=$(openssl x509 -in "${cert_file}" -noout -subject | sed 's/subject=//')
+        echo "Certificate: ${subject}"
+        return 0
+    else
+        echo -e "${RED}Error: Failed to install certificate to keychain${NC}"
+        return 1
+    fi
 }
 
-echo -e "${GREEN}MinIO Certificate Helper${NC}"
-echo "======================="
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--host)
+            MINIO_HOST="$2"
+            shift 2
+            ;;
+        -p|--port)
+            MINIO_PORT="$2"
+            shift 2
+            ;;
+        -o|--output)
+            OUTPUT_FILE="$2"
+            shift 2
+            ;;
+        -k|--keychain)
+            INSTALL_TO_KEYCHAIN=true
+            shift
+            ;;
+        --help)
+            show_usage
+            exit 0
+            ;;
+        *)
+            echo -e "${RED}Error: Unknown option $1${NC}"
+            show_usage
+            exit 1
+            ;;
+    esac
+done
 
-# Check if certificate exists
-if [ ! -f "$PROJECT_DIR/certs/public.crt" ]; then
-    print_error "Certificate not found at $PROJECT_DIR/certs/public.crt"
-    echo "Please run ./deploy.sh first to generate certificates"
+# Check if host is provided
+if [[ -z "$MINIO_HOST" ]]; then
+    echo -e "${RED}Error: MinIO host is required${NC}"
+    echo ""
+    show_usage
     exit 1
 fi
 
-# Get local IP
-LOCAL_IP=$(hostname -I | awk '{print $1}' 2>/dev/null || echo "localhost")
+# Check if openssl is available
+if ! command -v openssl &> /dev/null; then
+    echo -e "${RED}Error: openssl is not installed${NC}"
+    echo "Please install openssl first:"
+    echo "  macOS: brew install openssl"
+    echo "  Ubuntu/Debian: sudo apt install openssl"
+    exit 1
+fi
 
+# Main execution
+echo -e "${BLUE}MinIO Certificate Extraction${NC}"
+echo "Host: ${MINIO_HOST}"
+echo "Port: ${MINIO_PORT}"
+echo "Output: ${OUTPUT_FILE}"
 echo ""
-echo "Available options:"
-echo "  1. Display certificate content"
-echo "  2. Copy certificate to Downloads folder"
-echo "  3. Show certificate details"
-echo "  4. Generate client configuration examples"
-echo "  5. Add certificate to macOS keychain"
-echo ""
 
-read -p "Choose an option (1-5): " choice
-
-case $choice in
-    1)
-        echo ""
-        print_info "Certificate content:"
-        echo "===================="
-        cat "$PROJECT_DIR/certs/public.crt"
-        ;;
-    2)
-        if [ -d "$HOME/Downloads" ]; then
-            cp "$PROJECT_DIR/certs/public.crt" "$HOME/Downloads/minio-cert.crt"
-            print_success "Certificate copied to $HOME/Downloads/minio-cert.crt"
-        else
-            print_error "Downloads folder not found"
-        fi
-        ;;
-    3)
-        echo ""
-        print_info "Certificate details:"
-        echo "==================="
-        openssl x509 -in "$PROJECT_DIR/certs/public.crt" -text -noout | grep -A 10 -E "(Subject:|Issuer:|Validity|DNS:|IP Address:)"
-        ;;
-    4)
-        echo ""
-        print_info "Client configuration examples:"
-        echo "============================="
-        echo ""
-        echo "MinIO Client (mc):"
-        echo "  mc alias set myminio https://$LOCAL_IP:9000 your-username your-password --insecure"
-        echo ""
-        echo "AWS CLI:"
-        echo "  aws --endpoint-url=https://$LOCAL_IP:9000 --no-verify-ssl s3 ls"
-        echo ""
-        echo "curl:"
-        echo "  curl -k https://$LOCAL_IP:9000/minio/health/live"
-        echo ""
-        echo "Python boto3:"
-        echo "  s3_client = boto3.client('s3', endpoint_url='https://$LOCAL_IP:9000', verify=False)"
-        echo ""
-        echo "Python minio:"
-        echo "  client = Minio('$LOCAL_IP:9000', secure=True, cert_check=False)"
-        ;;
-    5)
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            echo ""
-            print_info "Adding certificate to macOS keychain..."
-            
-            # Copy to temp location first
-            cp "$PROJECT_DIR/certs/public.crt" "/tmp/minio-cert.crt"
-            
-            # Add to keychain
-            if sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "/tmp/minio-cert.crt"; then
-                print_success "Certificate added to macOS keychain"
-                echo "You can now use MinIO clients without the --insecure flag"
-                
-                # Clean up temp file
-                rm "/tmp/minio-cert.crt"
-            else
-                print_error "Failed to add certificate to keychain"
-            fi
-        else
-            print_error "This option is only available on macOS"
-        fi
-        ;;
-    *)
-        print_error "Invalid option"
-        exit 1
-        ;;
-esac
-
-echo ""
-print_info "Certificate path: $PROJECT_DIR/certs/public.crt"
-print_info "MinIO endpoint: https://$LOCAL_IP:9000" 
+# Extract certificate
+if extract_certificate "$MINIO_HOST" "$MINIO_PORT" "$OUTPUT_FILE"; then
+    # Install to keychain if requested
+    if [[ "$INSTALL_TO_KEYCHAIN" == true ]]; then
+        install_to_keychain "$OUTPUT_FILE"
+    fi
+    
+    echo ""
+    echo -e "${GREEN}Certificate extraction completed successfully!${NC}"
+    echo ""
+    echo -e "${BLUE}Next steps:${NC}"
+    
+    if [[ "$INSTALL_TO_KEYCHAIN" == true ]] && [[ "$OSTYPE" == "darwin"* ]]; then
+        echo "1. Certificate has been installed to your system keychain"
+        echo "2. You can now use MinIO clients without --insecure flags"
+        echo "3. Restart your applications to use the new certificate"
+    else
+        echo "1. Certificate saved to: ${OUTPUT_FILE}"
+        echo "2. Use this certificate file with your MinIO clients"
+        echo "3. Or install to keychain manually:"
+        echo "   sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ${OUTPUT_FILE}"
+    fi
+    
+    echo ""
+    echo -e "${BLUE}Example usage with MinIO client:${NC}"
+    echo "mc alias set myminio https://${MINIO_HOST}:${MINIO_PORT} your-username your-password"
+    
+else
+    echo -e "${RED}Certificate extraction failed${NC}"
+    exit 1
+fi 
