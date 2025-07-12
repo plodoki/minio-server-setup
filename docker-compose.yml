@@ -1,0 +1,27 @@
+services:
+  minio:
+    image: quay.io/minio/minio:latest
+    container_name: minio
+    restart: unless-stopped
+    command: server --console-address ":9001" --certs-dir /certs /data
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "9000:9000" # S3 API (HTTPS)
+      - "9001:9001" # Web console (HTTPS)
+    volumes:
+      - type: bind
+        source: ${LOCAL_MOUNT}
+        target: /data
+      - type: bind
+        source: ./certs
+        target: /certs
+        read_only: true
+    healthcheck:
+      test:
+        ["CMD", "curl", "-f", "-k", "https://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
