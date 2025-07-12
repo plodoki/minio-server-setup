@@ -15,6 +15,9 @@ NC='\033[0m' # No Color
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Initialize COMPOSE_CMD with default value
+COMPOSE_CMD="docker compose"
+
 # Banner
 echo -e "${GREEN}"
 echo "╔═══════════════════════════════════════════════════════════════════════════════╗"
@@ -48,6 +51,24 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# Function to detect and set docker compose command
+setup_compose_command() {
+    # Check for docker compose (v2) availability and set COMPOSE_CMD
+    if docker compose version > /dev/null 2>&1; then
+        COMPOSE_CMD="docker compose"
+    elif docker-compose version > /dev/null 2>&1; then
+        COMPOSE_CMD="docker-compose"
+    else
+        print_error "Neither 'docker compose' nor 'docker-compose' is available"
+        echo "Please install Docker Compose:"
+        echo "  sudo apt update"
+        echo "  sudo apt install -y docker.io"
+        echo "  sudo systemctl enable docker"
+        echo "  sudo systemctl start docker"
+        exit 1
+    fi
+}
+
 # Function to check system requirements
 check_requirements() {
     print_section "Checking System Requirements"
@@ -69,12 +90,10 @@ check_requirements() {
         fi
     done
     
-    # Check for docker compose (v2) availability and set COMPOSE_CMD
+    # Check for docker compose availability
     if docker compose version > /dev/null 2>&1; then
-        COMPOSE_CMD="docker compose"
         print_success "docker compose is available"
     elif docker-compose version > /dev/null 2>&1; then
-        COMPOSE_CMD="docker-compose"
         print_success "docker-compose is available"
     else
         missing_commands+=("docker compose")
@@ -319,6 +338,9 @@ main() {
                 ;;
         esac
     done
+    
+    # Always setup compose command regardless of skip_checks
+    setup_compose_command
     
     # Execute deployment steps
     if [ "$skip_checks" = false ]; then
