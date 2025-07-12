@@ -69,11 +69,15 @@ check_requirements() {
         fi
     done
     
-    # Check for docker compose (v2) availability
-    if ! docker compose version > /dev/null 2>&1; then
-        missing_commands+=("docker compose")
-    else
+    # Check for docker compose (v2) availability and set COMPOSE_CMD
+    if docker compose version > /dev/null 2>&1; then
+        COMPOSE_CMD="docker compose"
         print_success "docker compose is available"
+    elif docker-compose version > /dev/null 2>&1; then
+        COMPOSE_CMD="docker-compose"
+        print_success "docker-compose is available"
+    else
+        missing_commands+=("docker compose")
     fi
     
     if [ ${#missing_commands[@]} -ne 0 ]; then
@@ -193,14 +197,14 @@ deploy_minio() {
     print_section "Deploying MinIO"
     
     # Stop existing containers if running
-    if docker compose -f "$SCRIPT_DIR/docker-compose.yml" ps | grep -q "minio"; then
+    if $COMPOSE_CMD -f "$SCRIPT_DIR/docker-compose.yml" ps | grep -q "minio"; then
         echo "Stopping existing MinIO containers..."
-        docker compose -f "$SCRIPT_DIR/docker-compose.yml" down
+        $COMPOSE_CMD -f "$SCRIPT_DIR/docker-compose.yml" down
     fi
     
     # Start MinIO with docker compose
     echo "Starting MinIO containers..."
-    docker compose -f "$SCRIPT_DIR/docker-compose.yml" up -d
+    $COMPOSE_CMD -f "$SCRIPT_DIR/docker-compose.yml" up -d
     
     print_success "MinIO containers started"
 }
@@ -224,7 +228,7 @@ wait_for_minio() {
     done
     
     print_error "MinIO failed to start within expected time"
-    echo "Check the logs with: docker compose -f $SCRIPT_DIR/docker-compose.yml logs"
+    echo "Check the logs with: $COMPOSE_CMD -f $SCRIPT_DIR/docker-compose.yml logs"
     return 1
 }
 
@@ -259,10 +263,10 @@ display_info() {
     echo -e "${YELLOW}since we're using self-signed certificates.${NC}"
     echo ""
     echo "Management Commands:"
-    echo "  • View logs: docker compose -f $SCRIPT_DIR/docker-compose.yml logs"
-    echo "  • Stop service: docker compose -f $SCRIPT_DIR/docker-compose.yml down"
-    echo "  • Restart service: docker compose -f $SCRIPT_DIR/docker-compose.yml restart"
-    echo "  • Update service: docker compose -f $SCRIPT_DIR/docker-compose.yml pull && docker compose -f $SCRIPT_DIR/docker-compose.yml up -d"
+    echo "  • View logs: $COMPOSE_CMD -f $SCRIPT_DIR/docker-compose.yml logs"
+    echo "  • Stop service: $COMPOSE_CMD -f $SCRIPT_DIR/docker-compose.yml down"
+    echo "  • Restart service: $COMPOSE_CMD -f $SCRIPT_DIR/docker-compose.yml restart"
+    echo "  • Update service: $COMPOSE_CMD -f $SCRIPT_DIR/docker-compose.yml pull && $COMPOSE_CMD -f $SCRIPT_DIR/docker-compose.yml up -d"
 }
 
 # Function to show help
