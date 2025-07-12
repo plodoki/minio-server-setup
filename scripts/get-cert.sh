@@ -3,7 +3,7 @@
 # MinIO Certificate Helper Script
 # This script helps you retrieve the certificate for client configuration
 
-set -e
+set -euo pipefail
 
 # Colors for output
 RED='\033[0;31m'

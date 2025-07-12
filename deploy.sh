@@ -3,7 +3,7 @@
 # MinIO Deployment Script for Raspberry Pi
 # This script sets up MinIO with self-signed TLS certificates
 
-set -e
+set -euo pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -58,7 +58,7 @@ check_requirements() {
     fi
     
     # Check for required commands
-    local required_commands=("docker" "docker-compose" "openssl" "curl")
+    local required_commands=("docker" "openssl" "curl")
     local missing_commands=()
     
     for cmd in "${required_commands[@]}"; do
@@ -69,12 +69,19 @@ check_requirements() {
         fi
     done
     
+    # Check for docker compose (v2) availability
+    if ! docker compose version > /dev/null 2>&1; then
+        missing_commands+=("docker compose")
+    else
+        print_success "docker compose is available"
+    fi
+    
     if [ ${#missing_commands[@]} -ne 0 ]; then
         print_error "Missing required commands: ${missing_commands[*]}"
         echo ""
         echo "Please install the missing commands:"
         echo "  sudo apt update"
-        echo "  sudo apt install -y docker.io docker-compose openssl curl"
+        echo "  sudo apt install -y docker.io openssl curl"
         echo "  sudo systemctl enable docker"
         echo "  sudo systemctl start docker"
         echo "  sudo usermod -aG docker \$USER"
@@ -126,9 +133,15 @@ setup_environment() {
         exit 1
     fi
     
-    # Check if password is still the default
-    if [ "$MINIO_ROOT_PASSWORD" = "change-this-secure-password" ]; then
-        print_error "Please change the default password in .env file"
+    # Check if credentials are still placeholders
+    if [ "$MINIO_ROOT_USER" = "CHANGE_THIS_USERNAME" ] || [ "$MINIO_ROOT_PASSWORD" = "CHANGE_THIS_PASSWORD_BEFORE_DEPLOYMENT" ]; then
+        print_error "Placeholder credentials detected in .env file!"
+        echo ""
+        echo "Please update the following in your .env file:"
+        echo "  - MINIO_ROOT_USER: Set to your desired admin username"
+        echo "  - MINIO_ROOT_PASSWORD: Set to a secure password"
+        echo ""
+        echo "For security reasons, deployment cannot proceed with placeholder values."
         exit 1
     fi
     
@@ -147,9 +160,9 @@ create_data_directory() {
         print_success "Data directory already exists"
     fi
     
-    # Set proper permissions
-    chmod 755 "$LOCAL_MOUNT"
-    print_success "Data directory permissions set"
+    # Set proper permissions (750 for better security)
+    chmod 750 "$LOCAL_MOUNT"
+    print_success "Data directory permissions set (750)"
 }
 
 # Function to generate certificates
@@ -180,14 +193,14 @@ deploy_minio() {
     print_section "Deploying MinIO"
     
     # Stop existing containers if running
-    if docker-compose -f "$SCRIPT_DIR/docker-compose.yml" ps | grep -q "minio"; then
+    if docker compose -f "$SCRIPT_DIR/docker-compose.yml" ps | grep -q "minio"; then
         echo "Stopping existing MinIO containers..."
-        docker-compose -f "$SCRIPT_DIR/docker-compose.yml" down
+        docker compose -f "$SCRIPT_DIR/docker-compose.yml" down
     fi
     
-    # Start MinIO with docker-compose
+    # Start MinIO with docker compose
     echo "Starting MinIO containers..."
-    docker-compose -f "$SCRIPT_DIR/docker-compose.yml" up -d
+    docker compose -f "$SCRIPT_DIR/docker-compose.yml" up -d
     
     print_success "MinIO containers started"
 }
@@ -211,7 +224,7 @@ wait_for_minio() {
     done
     
     print_error "MinIO failed to start within expected time"
-    echo "Check the logs with: docker-compose -f $SCRIPT_DIR/docker-compose.yml logs"
+    echo "Check the logs with: docker compose -f $SCRIPT_DIR/docker-compose.yml logs"
     return 1
 }
 
@@ -246,10 +259,10 @@ display_info() {
     echo -e "${YELLOW}since we're using self-signed certificates.${NC}"
     echo ""
     echo "Management Commands:"
-    echo "  • View logs: docker-compose -f $SCRIPT_DIR/docker-compose.yml logs"
-    echo "  • Stop service: docker-compose -f $SCRIPT_DIR/docker-compose.yml down"
-    echo "  • Restart service: docker-compose -f $SCRIPT_DIR/docker-compose.yml restart"
-    echo "  • Update service: docker-compose -f $SCRIPT_DIR/docker-compose.yml pull && docker-compose -f $SCRIPT_DIR/docker-compose.yml up -d"
+    echo "  • View logs: docker compose -f $SCRIPT_DIR/docker-compose.yml logs"
+    echo "  • Stop service: docker compose -f $SCRIPT_DIR/docker-compose.yml down"
+    echo "  • Restart service: docker compose -f $SCRIPT_DIR/docker-compose.yml restart"
+    echo "  • Update service: docker compose -f $SCRIPT_DIR/docker-compose.yml pull && docker compose -f $SCRIPT_DIR/docker-compose.yml up -d"
 }
 
 # Function to show help

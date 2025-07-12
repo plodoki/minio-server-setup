@@ -3,7 +3,7 @@
 # MinIO Setup Verification Script
 # This script verifies that MinIO is properly deployed and accessible
 
-set -e
+set -euo pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -114,18 +114,40 @@ fi
 # Check Docker containers
 print_section "Checking Docker Containers"
 
-if docker-compose ps | grep -q "minio"; then
+if docker compose ps | grep -q "minio"; then
     print_success "MinIO container is running"
     
-    # Check container health
-    if docker-compose ps | grep -q "Up"; then
-        print_success "Container is healthy"
+    # Get container ID for health check
+    container_id=$(docker compose ps -q minio)
+    
+    if [ -n "$container_id" ]; then
+        # Check actual health status
+        health_status=$(docker inspect --format '{{.State.Health.Status}}' "$container_id" 2>/dev/null || echo "unknown")
+        
+        if [ "$health_status" = "healthy" ]; then
+            print_success "Container is healthy"
+        elif [ "$health_status" = "starting" ]; then
+            print_warning "Container is still starting up"
+        elif [ "$health_status" = "unhealthy" ]; then
+            print_error "Container is unhealthy"
+            echo "Container logs:"
+            docker compose logs --tail 20 minio
+            exit 1
+        else
+            # Fallback to basic status check if no health check is configured
+            if docker compose ps | grep -q "Up"; then
+                print_success "Container is running (no health check configured)"
+            else
+                print_warning "Container may not be healthy"
+            fi
+        fi
     else
-        print_warning "Container may not be healthy"
+        print_error "Could not get container ID"
+        exit 1
     fi
 else
     print_error "MinIO container is not running"
-    echo "Try running: docker-compose up -d"
+    echo "Try running: docker compose up -d"
     exit 1
 fi
 

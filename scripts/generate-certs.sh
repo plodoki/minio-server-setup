@@ -3,7 +3,7 @@
 # Script to generate self-signed certificates for MinIO
 # This script creates certificates that work with MinIO's TLS requirements
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"

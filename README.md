@@ -26,7 +26,7 @@ A complete MinIO deployment setup for Raspberry Pi with self-signed TLS certific
 sudo apt update && sudo apt upgrade -y
 
 # Install required packages
-sudo apt install -y docker.io docker-compose openssl curl
+sudo apt install -y docker.io openssl curl
 
 # Enable and start Docker
 sudo systemctl enable docker
@@ -37,7 +37,7 @@ sudo usermod -aG docker $USER
 
 # Logout and login again, then verify
 docker --version
-docker-compose --version
+docker compose version
 ```
 
 ## 🛠️ Installation & Deployment
@@ -359,27 +359,27 @@ For production environments, consider:
 ### View Logs
 
 ```bash
-docker-compose logs
-docker-compose logs -f  # Follow logs
+docker compose logs
+docker compose logs -f  # Follow logs
 ```
 
 ### Stop Service
 
 ```bash
-docker-compose down
+docker compose down
 ```
 
 ### Restart Service
 
 ```bash
-docker-compose restart
+docker compose restart
 ```
 
 ### Update MinIO
 
 ```bash
-docker-compose pull
-docker-compose up -d
+docker compose pull
+docker compose up -d
 ```
 
 ### Regenerate Certificates
@@ -448,7 +448,7 @@ openssl x509 -in certs/public.crt -text -noout
 
 ```bash
 # Check logs
-docker-compose logs minio
+docker compose logs minio
 
 # Check data directory permissions
 ls -la /path/to/your/data/directory
@@ -464,7 +464,7 @@ cat .env
 curl -k -f https://localhost:9000/minio/health/live
 
 # Check container status
-docker-compose ps
+docker compose ps
 ```
 
 ## 🔄 Backup and Restore
@@ -484,13 +484,13 @@ cp -r certs certs.backup
 
 ```bash
 # Stop MinIO
-docker-compose down
+docker compose down
 
 # Restore data
 sudo tar -xzf minio-backup-YYYYMMDD.tar.gz -C /
 
 # Start MinIO
-docker-compose up -d
+docker compose up -d
 ```
 
 ## 🚀 Advanced Usage
@@ -542,7 +542,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 If you encounter issues:
 
 1. Check the troubleshooting section
-2. Review the logs: `docker-compose logs`
+2. Review the logs: `docker compose logs`
 3. Verify your configuration: `cat .env`
 4. Check system requirements
 5. Open an issue with detailed information
