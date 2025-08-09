@@ -40,6 +40,41 @@ docker --version
 docker compose version
 ```
 
+### Ubuntu 24.04 (x86_64) – Install Docker from the official repository
+
+Using Docker's official repository ensures you get the latest Docker Engine and the Compose v2 plugin.
+
+```bash
+# Prep
+sudo apt update
+sudo apt install -y ca-certificates curl gnupg
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# Install engine + compose plugin
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# Enable and start Docker
+sudo systemctl enable docker
+sudo systemctl start docker
+
+# (Optional) Create docker group if missing and add your user
+getent group docker || sudo groupadd docker
+sudo usermod -aG docker $USER
+
+# Apply group change (either log out/in or use newgrp)
+newgrp docker
+
+# Verify
+docker --version
+docker compose version
+ls -l /var/run/docker.sock   # expect: ... root docker ...
+```
+
+Note: If you prefer to keep using sudo for Docker commands, you can skip adding your user to the `docker` group, but be aware that running `./deploy.sh` with sudo will create root-owned files (e.g., `.env`, `certs/`, data directory).
+
 ## 🛠️ Installation & Deployment
 
 ### 1. Clone or Download
@@ -139,6 +174,10 @@ This setup uses self-signed certificates for TLS encryption. You may see securit
 - Certificates are valid for 365 days
 - Include localhost, local IP, and hostname
 - Support additional domains/IPs during generation
+
+### Docker Group and Privileges
+
+- Members of the `docker` group can control the Docker daemon, which is effectively root-equivalent. On single-user/admin-only hosts this is standard practice. On multi-user systems, consider using sudo or rootless Docker instead of granting group membership to all users.
 
 ## 🖥️ Client Configuration for Self-Signed Certificates
 
@@ -438,13 +477,36 @@ minio-server-setup/
 
 ### Common Issues
 
-#### 1. Permission Denied (Docker)
+#### 1. Permission Denied (Docker) or `group 'docker' does not exist`
+
+If you see warnings like "User is not in the docker group" or errors such as `usermod: group 'docker' does not exist`:
 
 ```bash
-# Add user to docker group
+# Check Docker install and group
+docker --version
+getent group docker || echo "no docker group"
+
+# If the group is missing, create it and add your user
+sudo groupadd docker   # safe if it already exists
 sudo usermod -aG docker $USER
-# Logout and login again
+
+# Restart Docker so the socket picks up the group
+sudo systemctl restart docker
+
+# Apply group change without full logout (optional)
+newgrp docker
+
+# Verify socket group is docker (not root:root)
+ls -l /var/run/docker.sock
+
+# Sanity check
+docker run --rm hello-world
 ```
+
+Notes:
+
+- If you use `sudo ./deploy.sh`, generated files (e.g., `.env`, `certs/`, data dir) may become root-owned.
+- Compose v2 is available as `docker compose` when the `docker-compose-plugin` package is installed (no separate `docker-compose` binary needed).
 
 #### 2. Port Already in Use
 
@@ -550,6 +612,45 @@ Set up monitoring with Prometheus and Grafana:
 # MinIO provides metrics endpoint
 curl -k https://localhost:9000/minio/v2/metrics/cluster
 ```
+
+## Rootless Docker (Optional)
+
+Rootless Docker runs the daemon and containers as an unprivileged user for stronger isolation. Suitable when you cannot grant `docker` group access to users.
+
+### Pros
+- Least privilege: no root daemon; reduced risk surface
+- Multi-user friendly: each user can run their own daemon/socket
+- No need to add users to the `docker` group
+
+### Cons
+- Networking: no `--network=host`; slower user-mode networking; cannot bind privileged ports (<1024)
+- Features: limited device access (GPUs), no `--privileged`, constrained cgroups and kernel integrations
+- Storage: uses `fuse-overlayfs`; slight performance overhead vs rootful
+- Bind mounts: you can easily mount only paths you own
+
+### Setup on Ubuntu
+```bash
+sudo apt update
+sudo apt install -y uidmap dbus-user-session
+
+# Install rootless components
+dockerd-rootless-setuptool.sh install
+
+# Start/enable user service
+systemctl --user enable --now docker
+
+# Keep user services after logout (optional)
+loginctl enable-linger $USER
+
+# Point the client to the rootless daemon
+export DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock
+docker info | grep -i rootless
+```
+
+### MinIO Notes with Rootless
+- Ports 9000/9001 (>1024) are fine in rootless.
+- Set `LOCAL_MOUNT` in `.env` to a path you own (e.g., `/home/your-user/minio-data`).
+- For heavy I/O scenarios, rootful Docker may offer better performance.
 
 ## 📝 License
 
